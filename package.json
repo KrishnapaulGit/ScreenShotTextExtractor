@@ -1,0 +1,16 @@
+{
+  "name": "screenshot-text-extractor",
+  "version": "1.0.0",
+  "description": "Full-stack screenshot text extraction app with OCR",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client start\"",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
