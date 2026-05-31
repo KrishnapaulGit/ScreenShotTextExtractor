@@ -9,10 +9,12 @@ module.exports = async (req, res) => {
     'Content-Type, X-API-Key'
   );
 
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // Only POST allowed
   if (req.method !== 'POST') {
     return res.status(405).json({
       error: 'Method not allowed'
@@ -20,6 +22,7 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // Validate API Key
     const apiKey = req.headers['x-api-key'];
 
     if (!apiKey) {
@@ -36,12 +39,45 @@ module.exports = async (req, res) => {
       });
     }
 
-    const body =
-      typeof req.body === 'string'
-        ? JSON.parse(req.body)
-        : req.body;
+    // Read request body
+    let body = req.body;
 
-    const { userId, email } = body || {};
+    if (!body) {
+      let rawBody = '';
+
+      for await (const chunk of req) {
+        rawBody += chunk;
+      }
+
+      if (!rawBody) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Request body is missing'
+        });
+      }
+
+      try {
+        body = JSON.parse(rawBody);
+      } catch (err) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Invalid JSON payload'
+        });
+      }
+    }
+
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (err) {
+        return res.status(400).json({
+          error: 'Bad Request',
+          message: 'Invalid JSON payload'
+        });
+      }
+    }
+
+    const { userId, email } = body;
 
     if (!userId || !email) {
       return res.status(400).json({
@@ -50,10 +86,18 @@ module.exports = async (req, res) => {
       });
     }
 
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({
+        error: 'Server Configuration Error',
+        message: 'JWT_SECRET is not configured'
+      });
+    }
+
     const token = jwt.sign(
       {
         userId,
-        email
+        email,
+        createdAt: new Date().toISOString()
       },
       process.env.JWT_SECRET,
       {
@@ -71,6 +115,7 @@ module.exports = async (req, res) => {
         email
       }
     });
+
   } catch (error) {
     console.error('Token generation error:', error);
 
