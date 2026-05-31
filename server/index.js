@@ -3,9 +3,11 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const ocrController = require('./controllers/ocrController');
+const { verifyToken, logAuthRequest } = require('./middleware/authMiddleware');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -46,12 +48,65 @@ const upload = multer({
 });
 
 // Routes
-app.post('/api/extract-text', upload.single('image'), ocrController.extractText);
-app.post('/api/extract-text-batch', upload.array('images', 10), ocrController.extractTextBatch);
-app.post('/api/extract-text-base64', ocrController.extractTextFromBase64);
+// Public endpoint to generate tokens
+app.post('/api/generate-token', (req, res) => {
+  try {
+    const apiKey = req.headers['x-api-key'];
+    const expectedApiKey = process.env.API_KEY || 'your-api-key-for-token-generation';
+
+    // Verify API key for security
+    if (!apiKey || apiKey !== expectedApiKey) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Invalid or missing API key'
+      });
+    }
+
+    const payload = {
+      userId: req.body.userId || 'default-user',
+      email: req.body.email || 'user@example.com',
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const secret = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+    const expiryTime = process.env.JWT_EXPIRY; // undefined = lifetime token
+
+    const tokenOptions = {};
+    // Only add expiresIn if JWT_EXPIRY is configured
+    if (expiryTime) {
+      tokenOptions.expiresIn = expiryTime;
+    }
+
+    const token = jwt.sign(payload, secret, tokenOptions);
+
+    res.json({
+      token,
+      expiresIn: expiryTime || 'lifetime (never expires)',
+      message: 'Bearer token generated successfully'
+    });
+  } catch (err) {
+    console.error('Token generation error:', err);
+    res.status(500).json({
+      error: 'Token generation failed',
+      details: err.message
+    });
+  }
+});
+
+// Health check (public)
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Screenshot Text Extractor API is running' });
 });
+
+// Public OCR endpoints - no authentication required (for website)
+app.post('/api/extract-text', upload.single('image'), ocrController.extractText);
+app.post('/api/extract-text-batch', upload.array('images', 10), ocrController.extractTextBatch);
+app.post('/api/extract-text-base64', ocrController.extractTextFromBase64);
+
+// Protected routes - require Bearer token (for external API users)
+app.post('/api/extract-text-auth', verifyToken, logAuthRequest, upload.single('image'), ocrController.extractText);
+app.post('/api/extract-text-batch-auth', verifyToken, logAuthRequest, upload.array('images', 10), ocrController.extractTextBatch);
+app.post('/api/extract-text-base64-auth', verifyToken, logAuthRequest, ocrController.extractTextFromBase64);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
