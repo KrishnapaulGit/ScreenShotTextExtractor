@@ -1,7 +1,7 @@
 const Tesseract = require('tesseract.js');
 const sharp = require('sharp');
 const busboy = require('busboy');
-const { verifyToken } = require('./middleware/auth');
+const { verifyToken } = require('../server/middleware/authMiddleware');
 
 /**
  * Preprocess image for better OCR accuracy

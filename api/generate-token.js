@@ -1,154 +1,83 @@
-#!/usr/bin/env node
+const jwt = require('jsonwebtoken');
 
-/**
- * Generate Bearer Token for Screenshot Text Extractor
- * 
- * This script generates a Bearer token for authenticating with the API.
- * Tokens generated with this setup are LIFETIME tokens (never expire).
- * 
- * Usage:
- *   node generate-token.js
- * 
- * Then follow the prompts to enter your details.
- */
+module.exports = async (req, res) => {
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, X-API-Key'
+  );
 
-const http = require('http');
-const readline = require('readline');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
-
-const API_URL = 'http://localhost:5000';
-
-/**
- * Make an HTTP request
- */
-function makeRequest(options, body = null) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        resolve({
-          status: res.statusCode,
-          headers: res.headers,
-          body: data
-        });
-      });
+  if (req.method !== 'POST') {
+    return res.status(405).json({
+      error: 'Method not allowed'
     });
-
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-/**
- * Prompt user for input
- */
-function prompt(question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
-}
-
-/**
- * Main function
- */
-async function main() {
-  console.log('\n╔════════════════════════════════════════════╗');
-  console.log('║  Bearer Token Generator (LIFETIME)         ║');
-  console.log('║  Screenshot Text Extractor API             ║');
-  console.log('╚════════════════════════════════════════════╝\n');
+  }
 
   try {
-    // Get user input
-    const apiKey = await prompt('Enter API Key: ');
-    const userId = await prompt('Enter User ID (or press Enter for default): ') || 'default-user';
-    const email = await prompt('Enter Email (or press Enter for default): ') || 'user@example.com';
+    const apiKey = req.headers['x-api-key'];
 
-    if (!apiKey.trim()) {
-      console.log('\n❌ Error: API Key is required!\n');
-      rl.close();
-      return;
+    if (!apiKey) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'API key is required'
+      });
     }
 
-    console.log('\n⏳ Generating token...\n');
+    if (apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid API key'
+      });
+    }
 
-    // Make request to generate token
-    const payload = JSON.stringify({
-      userId: userId.trim(),
-      email: email.trim()
-    });
+    const body =
+      typeof req.body === 'string'
+        ? JSON.parse(req.body)
+        : req.body;
 
-    const options = {
-      hostname: 'localhost',
-      port: 5000,
-      path: '/api/generate-token',
-      method: 'POST',
-      headers: {
-        'X-API-Key': apiKey.trim(),
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(payload)
+    const { userId, email } = body || {};
+
+    if (!userId || !email) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'userId and email are required'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        userId,
+        email
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: '365d'
       }
-    };
+    );
 
-    const response = await makeRequest(options, payload);
-
-    if (response.status === 200) {
-      const data = JSON.parse(response.body);
-      
-      console.log('╔════════════════════════════════════════════╗');
-      console.log('║  ✅ TOKEN GENERATED SUCCESSFULLY!         ║');
-      console.log('╚════════════════════════════════════════════╝\n');
-
-      console.log('📋 Token Details:\n');
-      console.log(`User ID:     ${userId.trim()}`);
-      console.log(`Email:       ${email.trim()}`);
-      console.log(`Expires:     ${data.expiresIn}`);
-      console.log(`Type:        LIFETIME (never expires)\n`);
-
-      console.log('🔑 Your Bearer Token:\n');
-      console.log('─'.repeat(80));
-      console.log(data.token);
-      console.log('─'.repeat(80));
-
-      console.log('\n📌 How to use this token:\n');
-      console.log('1️⃣  Copy the token above');
-      console.log('2️⃣  Use in Frontend: Click "Generate Token" button and paste it');
-      console.log('3️⃣  Use in cURL:');
-      console.log(`    curl -X POST http://localhost:5000/api/extract-text \\`);
-      console.log(`      -H "Authorization: Bearer ${data.token.substring(0, 20)}..." \\`);
-      console.log(`      -F "image=@image.png"\n`);
-
-      console.log('4️⃣  Use in JavaScript:');
-      console.log(`    const headers = {`);
-      console.log(`      'Authorization': 'Bearer ${data.token.substring(0, 20)}...'`);
-      console.log(`    };\n`);
-
-      console.log('⚠️  Security Notes:');
-      console.log('   • This token has NO EXPIRATION - keep it secure!');
-      console.log('   • Do not share or commit tokens to version control');
-      console.log('   • Use environment variables to store tokens\n');
-
-    } else {
-      const errorData = JSON.parse(response.body);
-      console.log('❌ Error generating token:\n');
-      console.log(`Status: ${response.status}`);
-      console.log(`Error: ${errorData.error}`);
-      console.log(`Message: ${errorData.message}\n`);
-    }
-
+    return res.status(200).json({
+      success: true,
+      token,
+      tokenType: 'Bearer',
+      expiresIn: '365d',
+      user: {
+        userId,
+        email
+      }
+    });
   } catch (error) {
-    console.error('❌ Error:', error.message, '\n');
-  } finally {
-    rl.close();
-  }
-}
+    console.error('Token generation error:', error);
 
-// Run
-main();
+    return res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+};
